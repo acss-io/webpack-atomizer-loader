@@ -39,21 +39,15 @@ interface PathConfig {
 }
 
 const parseAndGenerateFile = function(
-    configPath: string,
+    config: PathConfig,
     source: string,
     validPostcssPlugins = [],
     minimize: boolean = false
 ): Promise<Function> {
     return new Promise((resolve, reject) => {
-        const firstTrigger: boolean = configObject[configPath] || true;
 
-        if (firstTrigger && configPath) {
-            configObject[configPath] = require(require.resolve(configPath));
-        }
-
-        const pathConfig: PathConfig = configObject[configPath] || configObject.default;
         const foundClasses = atomizer.findClassNames(source);
-        let cssDest = pathConfig.cssDest || DEFAULT_CSS_DEST;
+        let cssDest = config.cssDest || DEFAULT_CSS_DEST;
 
         if (!ensureExists(cssDest)) {
             console.warn('[atomic loader] create css failed.');
@@ -61,15 +55,15 @@ const parseAndGenerateFile = function(
         }
 
         // custom rules file
-        if (pathConfig.options && pathConfig.options.rules) {
-            const customRules = require(require.resolve(pathConfig.options.rules));
+        if (config.options && config.options.rules) {
+            const customRules = require(require.resolve(config.options.rules));
             if (customRules) {
                 atomizer.addRules(customRules);
             }
         }
 
-        const finalConfig = atomizer.getConfig(foundClasses, pathConfig.configs || {});
-        const cssString: string = atomizer.getCss(finalConfig, pathConfig.options || {});
+        const finalConfig = atomizer.getConfig(foundClasses, config.configs || {});
+        const cssString: string = atomizer.getCss(finalConfig, config.options || {});
 
         const pipeline = postcss(validPostcssPlugins);
         if (minimize) {
@@ -100,18 +94,25 @@ const atomicLoader = function(source, map) {
     }
 
     const query = getOptions(this) || {};
-    const { minimize = false, postcssPlugins = [] } = query;
+    const { config, configPath = [], minimize = false, postcssPlugins = [] } = query;
     let validPostcssPlugins = DEFAULT_POSTCSS_PLUGIN_LIST;
+
     if (Array.isArray(postcssPlugins)) {
         validPostcssPlugins = postcssPlugins;
     }
-    let configPaths = query.configPath;
-    if (!Array.isArray(configPaths)) {
-        configPaths = [configPaths];
+    let configs = [
+        ...[]
+            .concat(configPath)
+            .map(configPath => require(require.resolve(configPath))),
+        ...config !== undefined ? [query.config] : [],
+    ]
+
+    if (configs.length === 0) {
+        configs.push(configObject.default)
     }
 
-    const tasks: Promise<Function>[] = configPaths.map(configPath => {
-        return parseAndGenerateFile(configPath, source, validPostcssPlugins, minimize);
+    const tasks: Promise<Function>[] = configs.map(config => {
+        return parseAndGenerateFile(config, source, validPostcssPlugins, minimize);
     });
 
     Promise.all(tasks)
